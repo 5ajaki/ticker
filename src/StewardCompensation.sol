@@ -126,6 +126,10 @@ contract StewardCompensation is Ownable, Pausable {
 
         bool allPaid = true;
 
+        // Heads up! This nested loop is only okay for our small crew of stewards,
+        // but would get expensive real quick if we had 20+ people to pay.
+        // Future maintainer: you might want to refactor if the payment number grows.
+
         // Process specified recipients
         for (uint i = 0; i < _recipientsToProcess.length; i++) {
             address recipient = _recipientsToProcess[i];
