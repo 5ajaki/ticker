@@ -124,7 +124,7 @@ contract StewardCompensation is Ownable, Pausable {
         require(!period.paid, "Period fully paid");
         require(block.timestamp >= period.dueTimestamp, "Too early");
 
-        uint256 unpaidCount = 0;
+        bool allPaid = true;
 
         // Process specified recipients
         for (uint i = 0; i < _recipientsToProcess.length; i++) {
@@ -146,20 +146,20 @@ contract StewardCompensation is Ownable, Pausable {
                     _termNumber
                 );
             }
-        }
 
-        // Single loop to check remaining unpaid recipients
-        for (uint i = 0; i < recipientList.length; i++) {
-            if (
-                recipients[recipientList[i]].isActive &&
-                !period.recipientPaid[recipientList[i]]
-            ) {
-                unpaidCount++;
-                break; // Exit early if we find any unpaid recipient
+            // Check if any active recipients remain unpaid
+            for (uint j = 0; j < recipientList.length; j++) {
+                if (
+                    recipients[recipientList[j]].isActive &&
+                    !period.recipientPaid[recipientList[j]]
+                ) {
+                    allPaid = false;
+                    break;
+                }
             }
         }
 
-        if (unpaidCount == 0) {
+        if (allPaid) {
             period.paid = true;
         }
     }
@@ -196,11 +196,10 @@ contract StewardCompensation is Ownable, Pausable {
         }
     }
 
-    // Add function to get payment history for a recipient
     function getPaymentHistory(
-        address _recipient
+        address recipient
     )
-        external
+        public
         view
         returns (
             uint256[] memory periodIds,
@@ -209,34 +208,39 @@ contract StewardCompensation is Ownable, Pausable {
             bool[] memory paymentStatus
         )
     {
+        // Count valid periods
         uint256 count = 0;
-        // First, count the number of relevant periods
-        for (uint256 i = 0; ; i++) {
-            PaymentPeriod storage period = paymentPeriods[i];
-            if (period.dueTimestamp == 0) break; // No more periods
-            count++;
+        for (uint256 i = 1; i <= 100; i++) {
+            // Arbitrary limit for gas
+            if (paymentPeriods[i].dueTimestamp != 0) {
+                count++;
+            }
         }
 
-        // Initialize return arrays
+        // Initialize arrays
         periodIds = new uint256[](count);
         amounts = new uint256[](count);
         timestamps = new uint256[](count);
         paymentStatus = new bool[](count);
 
-        // Fill the arrays
-        for (uint256 i = 0; i < count; i++) {
-            PaymentPeriod storage period = paymentPeriods[i];
-            periodIds[i] = i;
-            timestamps[i] = period.dueTimestamp;
-            paymentStatus[i] = period.recipientPaid[_recipient];
-
-            // Get amount at time of period (current amount if still active)
-            if (recipients[_recipient].isActive) {
-                amounts[i] = recipients[_recipient].monthlyAmount;
-            } else {
-                amounts[i] = 0; // If recipient is no longer active
+        // Fill arrays
+        uint256 index = 0;
+        for (uint256 i = 1; i <= 100 && index < count; i++) {
+            if (paymentPeriods[i].dueTimestamp != 0) {
+                periodIds[index] = i;
+                amounts[index] = recipients[recipient].monthlyAmount;
+                timestamps[index] = paymentPeriods[i].dueTimestamp;
+                paymentStatus[index] = paymentPeriods[i].recipientPaid[
+                    recipient
+                ];
+                index++;
             }
         }
+    }
+
+    // Add this function before the emergency functions
+    function checkAllowance() public view returns (uint256) {
+        return USDC.allowance(owner(), address(this));
     }
 
     // Emergency functions
@@ -246,10 +250,5 @@ contract StewardCompensation is Ownable, Pausable {
 
     function unpause() external onlyOwner {
         _unpause();
-    }
-
-    // Add a view function to check USDC allowance
-    function checkAllowance() external view returns (uint256) {
-        return USDC.allowance(owner(), address(this));
     }
 }
