@@ -24,17 +24,25 @@ contract StewardCompensation is Ownable, Pausable {
 
     IERC20 public immutable USDC;
     uint256 public constant MAX_MONTHLY_AMOUNT = 10_000e6; // 10,000 USDC
-    
+
     mapping(uint256 => PaymentPeriod) public paymentPeriods;
     mapping(address => Recipient) public recipients;
     address[] public recipientList;
 
-    event RecipientAdded(address indexed recipient, uint256 monthlyAmount, string role);
-    event RecipientUpdated(address indexed recipient, uint256 newAmount, string role);
+    event RecipientAdded(
+        address indexed recipient,
+        uint256 monthlyAmount,
+        string role
+    );
+    event RecipientUpdated(
+        address indexed recipient,
+        uint256 newAmount,
+        string role
+    );
     event RecipientRemoved(address indexed recipient);
     event CompensationPaid(
-        uint256 indexed periodId, 
-        address indexed recipient, 
+        uint256 indexed periodId,
+        address indexed recipient,
         uint256 amount,
         string role,
         uint256 termNumber
@@ -47,12 +55,15 @@ contract StewardCompensation is Ownable, Pausable {
     }
 
     function addRecipient(
-        address _recipient, 
+        address _recipient,
         uint256 _monthlyAmount,
         string calldata _role
     ) external onlyOwner {
         require(_recipient != address(0), "Invalid address");
-        require(_monthlyAmount > 0 && _monthlyAmount <= MAX_MONTHLY_AMOUNT, "Invalid amount");
+        require(
+            _monthlyAmount > 0 && _monthlyAmount <= MAX_MONTHLY_AMOUNT,
+            "Invalid amount"
+        );
         require(!recipients[_recipient].isActive, "Already active");
 
         recipients[_recipient] = Recipient({
@@ -61,18 +72,21 @@ contract StewardCompensation is Ownable, Pausable {
             isActive: true
         });
         recipientList.push(_recipient);
-        
+
         emit RecipientAdded(_recipient, _monthlyAmount, _role);
     }
 
     function updateRecipient(
-        address _recipient, 
+        address _recipient,
         uint256 _newAmount,
         string calldata _role
     ) external onlyOwner {
         require(recipients[_recipient].isActive, "Recipient not active");
-        require(_newAmount > 0 && _newAmount <= MAX_MONTHLY_AMOUNT, "Invalid amount");
-        
+        require(
+            _newAmount > 0 && _newAmount <= MAX_MONTHLY_AMOUNT,
+            "Invalid amount"
+        );
+
         recipients[_recipient].monthlyAmount = _newAmount;
         recipients[_recipient].role = _role;
         emit RecipientUpdated(_recipient, _newAmount, _role);
@@ -80,23 +94,29 @@ contract StewardCompensation is Ownable, Pausable {
 
     function removeRecipient(address _recipient) external onlyOwner {
         require(recipients[_recipient].isActive, "Recipient not active");
-        
+
         recipients[_recipient].isActive = false;
         emit RecipientRemoved(_recipient);
     }
 
-    function setPeriod(uint256 _periodId, uint256 _dueTimestamp) external onlyOwner {
-        require(_dueTimestamp > block.timestamp, "Due timestamp must be future");
-        
+    function setPeriod(
+        uint256 _periodId,
+        uint256 _dueTimestamp
+    ) external onlyOwner {
+        require(
+            _dueTimestamp > block.timestamp,
+            "Due timestamp must be future"
+        );
+
         PaymentPeriod storage period = paymentPeriods[_periodId];
         require(!period.paid, "Period already paid");
-        
+
         period.dueTimestamp = _dueTimestamp;
         emit PeriodInitialized(_periodId, _dueTimestamp);
     }
 
     function sendComp(
-        uint256 _periodId, 
+        uint256 _periodId,
         address[] calldata _recipientsToProcess,
         uint256 _termNumber
     ) external whenNotPaused {
@@ -104,53 +124,59 @@ contract StewardCompensation is Ownable, Pausable {
         require(!period.paid, "Period fully paid");
         require(block.timestamp >= period.dueTimestamp, "Too early");
 
-        bool allPaid = true;
-        
+        uint256 unpaidCount = 0;
+
         // Process specified recipients
-        for(uint i = 0; i < _recipientsToProcess.length; i++) {
+        for (uint i = 0; i < _recipientsToProcess.length; i++) {
             address recipient = _recipientsToProcess[i];
             Recipient memory recipientData = recipients[recipient];
-            
-            if(recipientData.isActive && !period.recipientPaid[recipient]) {
+
+            if (recipientData.isActive && !period.recipientPaid[recipient]) {
                 period.recipientPaid[recipient] = true;
                 USDC.safeTransferFrom(
-                    owner(), 
-                    recipient, 
+                    owner(),
+                    recipient,
                     recipientData.monthlyAmount
                 );
                 emit CompensationPaid(
-                    _periodId, 
-                    recipient, 
+                    _periodId,
+                    recipient,
                     recipientData.monthlyAmount,
                     recipientData.role,
                     _termNumber
                 );
             }
-            
-            // Check if any active recipients remain unpaid
-            for(uint j = 0; j < recipientList.length; j++) {
-                if(recipients[recipientList[j]].isActive && 
-                   !period.recipientPaid[recipientList[j]]) {
-                    allPaid = false;
-                    break;
-                }
+        }
+
+        // Single loop to check remaining unpaid recipients
+        for (uint i = 0; i < recipientList.length; i++) {
+            if (
+                recipients[recipientList[i]].isActive &&
+                !period.recipientPaid[recipientList[i]]
+            ) {
+                unpaidCount++;
+                break; // Exit early if we find any unpaid recipient
             }
         }
-        
-        if(allPaid) {
+
+        if (unpaidCount == 0) {
             period.paid = true;
         }
     }
 
     // View functions
-    function getActiveRecipients() external view returns (
-        address[] memory addresses, 
-        uint256[] memory amounts,
-        string[] memory roles
-    ) {
+    function getActiveRecipients()
+        external
+        view
+        returns (
+            address[] memory addresses,
+            uint256[] memory amounts,
+            string[] memory roles
+        )
+    {
         uint256 activeCount = 0;
-        for(uint i = 0; i < recipientList.length; i++) {
-            if(recipients[recipientList[i]].isActive) {
+        for (uint i = 0; i < recipientList.length; i++) {
+            if (recipients[recipientList[i]].isActive) {
                 activeCount++;
             }
         }
@@ -158,14 +184,57 @@ contract StewardCompensation is Ownable, Pausable {
         addresses = new address[](activeCount);
         amounts = new uint256[](activeCount);
         roles = new string[](activeCount);
-        
+
         uint256 j = 0;
-        for(uint i = 0; i < recipientList.length; i++) {
-            if(recipients[recipientList[i]].isActive) {
+        for (uint i = 0; i < recipientList.length; i++) {
+            if (recipients[recipientList[i]].isActive) {
                 addresses[j] = recipientList[i];
                 amounts[j] = recipients[recipientList[i]].monthlyAmount;
                 roles[j] = recipients[recipientList[i]].role;
                 j++;
+            }
+        }
+    }
+
+    // Add function to get payment history for a recipient
+    function getPaymentHistory(
+        address _recipient
+    )
+        external
+        view
+        returns (
+            uint256[] memory periodIds,
+            uint256[] memory amounts,
+            uint256[] memory timestamps,
+            bool[] memory paymentStatus
+        )
+    {
+        uint256 count = 0;
+        // First, count the number of relevant periods
+        for (uint256 i = 0; ; i++) {
+            PaymentPeriod storage period = paymentPeriods[i];
+            if (period.dueTimestamp == 0) break; // No more periods
+            count++;
+        }
+
+        // Initialize return arrays
+        periodIds = new uint256[](count);
+        amounts = new uint256[](count);
+        timestamps = new uint256[](count);
+        paymentStatus = new bool[](count);
+
+        // Fill the arrays
+        for (uint256 i = 0; i < count; i++) {
+            PaymentPeriod storage period = paymentPeriods[i];
+            periodIds[i] = i;
+            timestamps[i] = period.dueTimestamp;
+            paymentStatus[i] = period.recipientPaid[_recipient];
+
+            // Get amount at time of period (current amount if still active)
+            if (recipients[_recipient].isActive) {
+                amounts[i] = recipients[_recipient].monthlyAmount;
+            } else {
+                amounts[i] = 0; // If recipient is no longer active
             }
         }
     }
@@ -177,5 +246,10 @@ contract StewardCompensation is Ownable, Pausable {
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    // Add a view function to check USDC allowance
+    function checkAllowance() external view returns (uint256) {
+        return USDC.allowance(owner(), address(this));
     }
 }
